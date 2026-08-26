@@ -138,13 +138,21 @@ export interface LogEntry {
   message: string;
 }
 
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
 export interface AgentRecord {
   status: AgentStatus;
   startedAt?: string;
   finishedAt?: string;
   durationMs?: number;
   model?: string;
-  output?: unknown;
+  output?: JsonValue;
   error?: string;
 }
 

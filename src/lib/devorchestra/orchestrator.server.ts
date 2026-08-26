@@ -3,6 +3,7 @@ import { callLLMJson } from "./llm.server";
 import { fileLanguage, type Stage } from "./pipeline";
 import type {
   AgentId,
+  JsonValue,
   Architecture,
   BacklogItem,
   GeneratedFile,
@@ -95,14 +96,21 @@ function startAgent(state: RunState, agent: AgentId) {
   state.agents[agent] = { ...state.agents[agent], status: "running", startedAt: new Date().toISOString() };
 }
 
-function finishAgent(state: RunState, agent: AgentId, output: unknown, model: string, startedAt: number) {
+function finishAgent(
+  state: RunState,
+  agent: AgentId,
+  output: unknown,
+  model: string,
+  startedAt: number,
+) {
+  const previousStart = state.agents[agent]?.startedAt;
   state.agents[agent] = {
     status: "completed",
-    startedAt: state.agents[agent]?.startedAt,
+    ...(previousStart ? { startedAt: previousStart } : {}),
     finishedAt: new Date().toISOString(),
     durationMs: Date.now() - startedAt,
     model,
-    output,
+    output: JSON.parse(JSON.stringify(output ?? null)) as JsonValue,
   };
 }
 
