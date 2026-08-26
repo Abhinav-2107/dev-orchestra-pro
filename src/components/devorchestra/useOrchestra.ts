@@ -57,7 +57,11 @@ export function useOrchestra() {
           const stage = nextStage(current);
           if (!stage) break;
           setActiveStage(stage);
-          const result = await runStage({ data: { state: current, stage, config } });
+          const result = (await runStage({ data: { state: current, stage, config } })) as {
+            ok: boolean;
+            state: RunState;
+            error: string | null;
+          };
           current = result.state as RunState;
           setState({ ...current });
           if (!result.ok) {
