@@ -57,18 +57,24 @@ export function useOrchestra() {
           const stage = nextStage(current);
           if (!stage) break;
           setActiveStage(stage);
-          const result = (await runStage({ data: { state: current, stage, config } })) as {
+          const payload = current.id
+            ? { stateId: current.id, stage, config }
+            : { state: current, stage, config };
+          const result = (await runStage({ data: payload })) as {
             ok: boolean;
-            state: RunState;
+            state: RunState | null;
             error: string | null;
           };
-          current = result.state as RunState;
-          setState({ ...current });
+          if (result.state) {
+            current = result.state;
+            setState({ ...current });
+          }
           if (!result.ok) {
             setError(result.error ?? "Unknown agent failure");
             toast.error(result.error ?? "Agent failed");
             break;
           }
+
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
