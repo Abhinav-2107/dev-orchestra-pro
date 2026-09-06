@@ -78,10 +78,17 @@ async function saveToFolder(state: RunState) {
     toast.success(`Saved ${state.files.length + 1} files into "${root.name}".`);
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") return;
-    toast.error("Could not write to that folder. Downloading a zip instead.");
+    const blocked =
+      error instanceof DOMException && (error.name === "SecurityError" || error.name === "NotAllowedError");
+    toast.error(
+      blocked
+        ? "Saving into a folder is blocked inside this embedded preview. Open the app in its own browser tab to use it — downloading a zip for now."
+        : "Could not write to that folder. Downloading a zip instead.",
+    );
     await exportZip(state);
   }
 }
+
 
 async function exportZip(state: RunState) {
   const JSZip = (await import("jszip")).default;
