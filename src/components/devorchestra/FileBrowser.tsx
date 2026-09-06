@@ -122,9 +122,17 @@ export function FileBrowser({ state }: { state: RunState }) {
         <span className="mono-label">
           {state.files.length} files · {state.files.reduce((n, f) => n + f.content.length, 0)} bytes
         </span>
-        <Button size="sm" onClick={() => exportZip(state)}>
-          <Download /> Export project
-        </Button>
+        <div className="flex items-center gap-2">
+          {hasDirectoryPicker() && (
+            <Button size="sm" onClick={() => saveToFolder(state)}>
+              <FolderDown /> Save to folder
+            </Button>
+          )}
+          <Button size="sm" variant="secondary" onClick={() => exportZip(state)}>
+            <Download /> Export zip
+          </Button>
+        </div>
+
       </div>
       <div className="grid gap-3 lg:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
         <div className="scroll-slim max-h-[520px] overflow-auto rounded-md border border-border bg-surface p-2">
