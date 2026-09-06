@@ -3,10 +3,14 @@ import type { Stage } from "./devorchestra/pipeline";
 import type { ProviderConfig, RunState } from "./devorchestra/types";
 
 interface RunStageInput {
-  state: RunState;
+  /** Sent only for the first stage of a run, before the row exists. */
+  state?: RunState;
+  /** Once the run is persisted the client sends just the id, keeping the request tiny. */
+  stateId?: string | null;
   stage: Stage;
   config: ProviderConfig;
 }
+
 
 async function getDb() {
   const { createClient } = await import("@supabase/supabase-js");
