@@ -1,37 +1,93 @@
 import { useMemo, useState } from "react";
-import { Download, File as FileIcon } from "lucide-react";
+import { Download, File as FileIcon, FolderDown } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { RunState } from "@/lib/devorchestra/types";
 import { cn } from "@/lib/utils";
 
+type DirHandle = {
+  getDirectoryHandle: (name: string, opts?: { create?: boolean }) => Promise<DirHandle>;
+  getFileHandle: (
+    name: string,
+    opts?: { create?: boolean },
+  ) => Promise<{ createWritable: () => Promise<{ write: (d: string) => Promise<void>; close: () => Promise<void> }> }>;
+  name: string;
+};
+
+function manifest(state: RunState) {
+  return JSON.stringify(
+    {
+      name: state.name,
+      requirement: state.requirement,
+      mode: state.mode,
+      provider: state.providerLabel,
+      model: state.model,
+      requirements: state.requirements,
+      backlog: state.backlog,
+      sprints: state.sprints,
+      architectures: state.architectures,
+      reviews: state.reviews,
+      tests: state.tests,
+      corrections: state.corrections,
+      logs: state.logs,
+    },
+    null,
+    2,
+  );
+}
+
+function hasDirectoryPicker() {
+  return typeof window !== "undefined" && "showDirectoryPicker" in window;
+}
+
+async function saveToFolder(state: RunState) {
+  try {
+    const picker = (window as unknown as { showDirectoryPicker: (o?: { mode?: string }) => Promise<DirHandle> })
+      .showDirectoryPicker;
+    const root = await picker({ mode: "readwrite" });
+
+    const dirCache = new Map<string, DirHandle>([["", root]]);
+    const ensureDir = async (dirPath: string): Promise<DirHandle> => {
+      if (dirCache.has(dirPath)) return dirCache.get(dirPath)!;
+      const parts = dirPath.split("/").filter(Boolean);
+      let current = root;
+      let walked = "";
+      for (const part of parts) {
+        walked = walked ? `${walked}/${part}` : part;
+        const cached = dirCache.get(walked);
+        current = cached ?? (await current.getDirectoryHandle(part, { create: true }));
+        dirCache.set(walked, current);
+      }
+      return current;
+    };
+
+    const writeFile = async (path: string, content: string) => {
+      const segments = path.split("/").filter(Boolean);
+      const fileName = segments.pop()!;
+      const dir = await ensureDir(segments.join("/"));
+      const handle = await dir.getFileHandle(fileName, { create: true });
+      const writable = await handle.createWritable();
+      await writable.write(content);
+      await writable.close();
+    };
+
+    for (const file of state.files) await writeFile(file.path, file.content);
+    await writeFile("DEVORCHESTRA.json", manifest(state));
+
+    toast.success(`Saved ${state.files.length + 1} files into "${root.name}".`);
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return;
+    toast.error("Could not write to that folder. Downloading a zip instead.");
+    await exportZip(state);
+  }
+}
+
 async function exportZip(state: RunState) {
   const JSZip = (await import("jszip")).default;
   const zip = new JSZip();
   for (const file of state.files) zip.file(file.path, file.content);
-  zip.file(
-    "DEVORCHESTRA.json",
-    JSON.stringify(
-      {
-        name: state.name,
-        requirement: state.requirement,
-        mode: state.mode,
-        provider: state.providerLabel,
-        model: state.model,
-        requirements: state.requirements,
-        backlog: state.backlog,
-        sprints: state.sprints,
-        architectures: state.architectures,
-        reviews: state.reviews,
-        tests: state.tests,
-        corrections: state.corrections,
-        logs: state.logs,
-      },
-      null,
-      2,
-    ),
-  );
+  zip.file("DEVORCHESTRA.json", manifest(state));
   const blob = await zip.generateAsync({ type: "blob" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -41,6 +97,7 @@ async function exportZip(state: RunState) {
   URL.revokeObjectURL(url);
   toast.success("Project exported.");
 }
+
 
 export function FileBrowser({ state }: { state: RunState }) {
   const [selected, setSelected] = useState<string | null>(null);
@@ -65,9 +122,17 @@ export function FileBrowser({ state }: { state: RunState }) {
         <span className="mono-label">
           {state.files.length} files · {state.files.reduce((n, f) => n + f.content.length, 0)} bytes
         </span>
-        <Button size="sm" onClick={() => exportZip(state)}>
-          <Download /> Export project
-        </Button>
+        <div className="flex items-center gap-2">
+          {hasDirectoryPicker() && (
+            <Button size="sm" onClick={() => saveToFolder(state)}>
+              <FolderDown /> Save to folder
+            </Button>
+          )}
+          <Button size="sm" variant="secondary" onClick={() => exportZip(state)}>
+            <Download /> Export zip
+          </Button>
+        </div>
+
       </div>
       <div className="grid gap-3 lg:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
         <div className="scroll-slim max-h-[520px] overflow-auto rounded-md border border-border bg-surface p-2">
