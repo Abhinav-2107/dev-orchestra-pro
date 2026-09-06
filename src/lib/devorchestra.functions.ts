@@ -3,10 +3,14 @@ import type { Stage } from "./devorchestra/pipeline";
 import type { ProviderConfig, RunState } from "./devorchestra/types";
 
 interface RunStageInput {
-  state: RunState;
+  /** Sent only for the first stage of a run, before the row exists. */
+  state?: RunState;
+  /** Once the run is persisted the client sends just the id, keeping the request tiny. */
+  stateId?: string | null;
   stage: Stage;
   config: ProviderConfig;
 }
+
 
 async function getDb() {
   const { createClient } = await import("@supabase/supabase-js");
@@ -61,14 +65,33 @@ async function persist(state: RunState): Promise<RunState> {
   }
 }
 
+async function readState(id: string): Promise<RunState | null> {
+  const db = await getDb();
+  const { data: row } = await db
+    .from("devorchestra_runs")
+    .select("id, state")
+    .eq("id", id)
+    .maybeSingle();
+  if (!row) return null;
+  const state = (row as { state: RunState }).state;
+  return { ...state, id: (row as { id: string }).id };
+}
+
 export const runStageFn = createServerFn({ method: "POST" })
   .inputValidator((input: RunStageInput) => {
-    if (!input?.state || !input?.stage || !input?.config) throw new Error("Invalid stage request");
+    if (!input?.stage || !input?.config) throw new Error("Invalid stage request");
+    if (!input.state && !input.stateId) throw new Error("Invalid stage request");
     return input;
   })
   .handler(async ({ data }) => {
     const { runStage } = await import("./devorchestra/orchestrator.server");
-    const working = structuredClone(data.state);
+    const loaded = data.stateId ? await readState(data.stateId) : null;
+    const base = loaded ?? data.state;
+    if (!base) {
+      return { ok: false as const, state: null, error: "That run could not be loaded from storage." };
+    }
+    const working = structuredClone(base);
+
     try {
       const next = await runStage(working, data.stage, data.config);
       const saved = await persist(next);
