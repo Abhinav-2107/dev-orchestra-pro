@@ -126,13 +126,31 @@ export async function runStage(
 
   if (stage === "advance") {
     const sprint = state.sprints[sprintIndex];
-    if (sprint) sprint.status = "passed";
-    log(state, "orchestrator", "success", `Sprint ${sprintIndex + 1} passed all tests.`);
+    const sprintTests = state.tests.filter((t) => t.sprint === sprintIndex);
+    const latest = sprintTests[sprintTests.length - 1];
+    const passed = latest?.verdict === "PASS";
+    if (sprint) sprint.status = passed ? "passed" : "failed";
+    log(
+      state,
+      "orchestrator",
+      passed ? "success" : "warn",
+      passed
+        ? `Sprint ${sprintIndex + 1} passed all tests.`
+        : `Sprint ${sprintIndex + 1} closed with open test failures after ${sprintTests.length} attempts — continuing with the next sprint.`,
+    );
     state.currentSprint = sprintIndex + 1;
     if (state.currentSprint >= state.sprints.length) {
-      state.status = "passed";
-      state.finalSummary = `All ${state.sprints.length} sprints passed. ${state.files.length} files generated across ${state.tests.length} test runs and ${state.corrections.length} corrections.`;
-      log(state, "orchestrator", "success", "Final application ready.");
+      const failed = state.sprints.filter((s) => s.status === "failed").length;
+      state.status = failed ? "failed" : "passed";
+      state.finalSummary = failed
+        ? `${state.sprints.length - failed}/${state.sprints.length} sprints passed. ${state.files.length} files generated across ${state.tests.length} test runs and ${state.corrections.length} corrections. ${failed} sprint(s) still have open test findings.`
+        : `All ${state.sprints.length} sprints passed. ${state.files.length} files generated across ${state.tests.length} test runs and ${state.corrections.length} corrections.`;
+      log(
+        state,
+        "orchestrator",
+        failed ? "warn" : "success",
+        failed ? "Project generated with open findings." : "Final application ready.",
+      );
     } else {
       const next = state.sprints[state.currentSprint];
       if (next) next.status = "in_progress";
@@ -352,11 +370,12 @@ export async function runStage(
           `Attempt ${attempt}: ${run.verdict} - ${run.cases.filter((c) => c.status === "pass").length}/${run.cases.length} cases passed.`,
         );
         if (run.verdict === "FAIL" && attempt >= state.retryLimit) {
-          state.status = "failed";
-          state.agents.testing = { ...state.agents.testing, status: "failed" };
-          state.finalSummary = `Retry limit (${state.retryLimit}) reached on sprint ${sprintIndex + 1}. Correction loop stopped.`;
-          log(state, "orchestrator", "error", state.finalSummary);
-          return state;
+          log(
+            state,
+            "orchestrator",
+            "warn",
+            `Retry limit (${state.retryLimit}) reached on sprint ${sprintIndex + 1}. Recording the findings and moving to the next sprint.`,
+          );
         }
         finishAgent(state, "testing", run, model, started);
         break;

@@ -72,7 +72,9 @@ export function nextStage(state: RunState): Stage | null {
   if (!latest) return "testing";
   if (latest.verdict === "PASS") return "advance";
 
-  if (sprintTests.length >= state.retryLimit) return null; // retry limit reached
+  // Retry budget spent: close the sprint out as "failed" and keep building the
+  // remaining sprints instead of abandoning the whole project.
+  if (sprintTests.length >= state.retryLimit) return "advance";
   const fixedForAttempt = state.corrections.some(
     (c) => c.sprint === s && c.source === "testing" && c.attempt === latest.attempt,
   );
