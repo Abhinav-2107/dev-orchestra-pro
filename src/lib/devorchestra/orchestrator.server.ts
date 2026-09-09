@@ -370,11 +370,12 @@ export async function runStage(
           `Attempt ${attempt}: ${run.verdict} - ${run.cases.filter((c) => c.status === "pass").length}/${run.cases.length} cases passed.`,
         );
         if (run.verdict === "FAIL" && attempt >= state.retryLimit) {
-          state.status = "failed";
-          state.agents.testing = { ...state.agents.testing, status: "failed" };
-          state.finalSummary = `Retry limit (${state.retryLimit}) reached on sprint ${sprintIndex + 1}. Correction loop stopped.`;
-          log(state, "orchestrator", "error", state.finalSummary);
-          return state;
+          log(
+            state,
+            "orchestrator",
+            "warn",
+            `Retry limit (${state.retryLimit}) reached on sprint ${sprintIndex + 1}. Recording the findings and moving to the next sprint.`,
+          );
         }
         finishAgent(state, "testing", run, model, started);
         break;
