@@ -105,6 +105,8 @@ export function useOrchestra() {
       setState(fresh);
       const final = await drive(fresh);
       if (final.status === "passed") toast.success("Run finished — application generated.");
+      else if (final.status === "failed" && final.files.length > 0)
+        toast.warning("All sprints built, but some tests still report findings.");
     },
     [config, drive, projectName, requirement],
   );
