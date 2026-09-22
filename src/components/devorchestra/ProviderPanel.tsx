@@ -64,7 +64,10 @@ export function ProviderPanel({
       {config.mode === "lovable" && (
         <div className="space-y-2">
           <Label className="mono-label">Model</Label>
-          <Select value={config.model} onValueChange={(value) => set("model", value)}>
+          <Select
+            value={normalizeLovableModel(config.model)}
+            onValueChange={(value) => set("model", value)}
+          >
             <SelectTrigger className="font-mono text-xs">
               <SelectValue />
             </SelectTrigger>
