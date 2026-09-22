@@ -110,6 +110,16 @@ function friendlyError(error: unknown, provider: ResolvedProvider, config: Provi
       `Cannot reach Ollama at ${config.ollamaBaseUrl}. Start it with \`ollama serve\` and pull the model (\`ollama pull ${provider.model}\`). Note: a hosted preview cannot reach your localhost - run this app locally for Ollama mode.`,
     );
   }
+  if (status === 402 || /not enough credits|insufficient_quota|exceeded your current quota/i.test(raw)) {
+    return new Error(
+      config.mode === "lovable"
+        ? "The built-in Lovable AI credits for this workspace are used up, so no agent call can run. Top up credits, or switch to the “API model” tab and paste your own provider key."
+        : `${provider.label} reports no remaining quota on that key. ${raw}`,
+    );
+  }
+  if (/api key|unauthorized|invalid_api_key|permission/i.test(raw) && !status) {
+    return new Error(`${provider.label} rejected the API key. ${raw}`);
+  }
   if (status === 400 && /model/i.test(raw)) {
     return new Error(
       `Model "${provider.model}" is not available on ${provider.label}. Pick a different model in the AI Provider panel. (${raw})`,
