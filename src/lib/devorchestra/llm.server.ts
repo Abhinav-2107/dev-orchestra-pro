@@ -63,9 +63,10 @@ export function resolveProvider(config: ProviderConfig): ResolvedProvider {
   if (!lovableKey) {
     throw new Error("Lovable AI is not configured on this project (missing gateway key).");
   }
+  const model = normalizeLovableModel(config.model);
   return {
-    label: `Lovable AI (${config.model})`,
-    model: config.model || "google/gemini-3.7-flash",
+    label: `Lovable AI (${model})`,
+    model,
     baseURL: "https://ai.gateway.lovable.dev/v1",
     headers: {
       "Lovable-API-Key": lovableKey,
