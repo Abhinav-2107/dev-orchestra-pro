@@ -1,5 +1,3 @@
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { streamText } from "ai";
 import type { ProviderConfig } from "./types";
 import { normalizeLovableModel } from "./types";
 
