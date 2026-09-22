@@ -15,8 +15,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { testProviderFn } from "@/lib/devorchestra.functions";
 import type { ProviderConfig, ProviderMode } from "@/lib/devorchestra/types";
-
-
+import { LOVABLE_MODELS, normalizeLovableModel } from "@/lib/devorchestra/types";
 
 const API_MODEL_HINTS: Record<string, string> = {
   openai: "gpt-4o-mini",
