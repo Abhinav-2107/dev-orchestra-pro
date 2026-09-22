@@ -16,13 +16,6 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { testProviderFn } from "@/lib/devorchestra.functions";
 import type { ProviderConfig, ProviderMode } from "@/lib/devorchestra/types";
 
-const LOVABLE_MODELS = [
-  "google/gemini-3.7-flash",
-  "google/gemini-3.8-flash",
-  "google/gemini-3.1-pro-preview",
-  "openai/gpt-5.6-terra",
-  "openai/gpt-5.4-mini",
-];
 
 
 const API_MODEL_HINTS: Record<string, string> = {
