@@ -143,27 +143,92 @@ function friendlyError(error: unknown, provider: ResolvedProvider, config: Provi
 }
 
 
+class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+/**
+ * Direct streaming chat-completions call. Streaming keeps bytes flowing during
+ * long agent turns, and reading the response ourselves means the caller sees the
+ * provider's real status and error body instead of a generic SDK message.
+ */
+async function streamChat(provider: ResolvedProvider, system: string, user: string) {
+  const body: Record<string, unknown> = {
+    model: provider.model,
+    stream: true,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+  };
+  if (/^openai\/gpt-(6|5\.6)/.test(provider.model)) body["reasoning_effort"] = "low";
+
+  const res = await fetch(`${provider.baseURL}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...provider.headers },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok || !res.body) {
+    const detail = (await res.text().catch(() => "")).slice(0, 600);
+    let message = detail;
+    try {
+      const parsed = JSON.parse(detail) as { message?: string; error?: { message?: string } };
+      message = parsed.error?.message || parsed.message || detail;
+    } catch {
+      /* keep raw text */
+    }
+    throw new ApiError(res.status, message || `HTTP ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+  let streamError = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) continue;
+      const payload = trimmed.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      try {
+        const chunk = JSON.parse(payload) as {
+          choices?: { delta?: { content?: string } }[];
+          error?: { message?: string };
+        };
+        if (chunk.error?.message) streamError = chunk.error.message;
+        const delta = chunk.choices?.[0]?.delta?.content;
+        if (delta) text += delta;
+      } catch {
+        /* ignore keep-alive / partial frames */
+      }
+    }
+  }
+
+  if (streamError && !text.trim()) throw new ApiError(0, streamError);
+  return text;
+}
+
 export async function callLLM(
   config: ProviderConfig,
   system: string,
   user: string,
 ): Promise<{ text: string; model: string; label: string }> {
   const provider = resolveProvider(config);
-  const client = createOpenAICompatible({
-    name: "lovable",
-    baseURL: provider.baseURL,
-    headers: provider.headers,
-  });
 
   try {
-    // Streaming on the wire: long agent calls must not sit silent behind a buffered request.
-    const result = streamText({
-      model: client(provider.model),
-      system,
-      prompt: user,
-      maxRetries: 1,
-    });
-    const text = await result.text;
+    const text = await streamChat(provider, system, user);
     if (!text?.trim()) throw new Error("The model returned an empty response.");
     return { text, model: provider.model, label: provider.label };
   } catch (error) {
