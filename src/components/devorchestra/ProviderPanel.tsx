@@ -18,11 +18,12 @@ import type { ProviderConfig, ProviderMode } from "@/lib/devorchestra/types";
 
 const LOVABLE_MODELS = [
   "google/gemini-3.7-flash",
+  "google/gemini-3.8-flash",
   "google/gemini-3.1-pro-preview",
-  "google/gemini-2.5-flash",
   "openai/gpt-5.6-terra",
   "openai/gpt-5.4-mini",
 ];
+
 
 const API_MODEL_HINTS: Record<string, string> = {
   openai: "gpt-4o-mini",
