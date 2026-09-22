@@ -53,7 +53,28 @@ export function ProviderPanel({
 
   return (
     <div className="space-y-4">
-      <Tabs value={config.mode} onValueChange={(value) => set("mode", value as ProviderMode)}>
+      <Tabs
+        value={config.mode}
+        onValueChange={(value) => {
+          const mode = value as ProviderMode;
+          if (mode === "api") {
+            // A gateway id like "openai/gpt-6-astra" is meaningless to a direct provider key.
+            onChange({
+              ...config,
+              mode,
+              model: config.model.includes("/")
+                ? (API_MODEL_HINTS[config.apiProvider] ?? "gpt-4o-mini")
+                : config.model,
+            });
+            return;
+          }
+          if (mode === "lovable") {
+            onChange({ ...config, mode, model: normalizeLovableModel(config.model) });
+            return;
+          }
+          set("mode", mode);
+        }}
+      >
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="lovable">Lovable AI</TabsTrigger>
           <TabsTrigger value="api">API model</TabsTrigger>
