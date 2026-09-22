@@ -12,6 +12,7 @@ export interface ResolvedProvider {
   model: string;
   baseURL: string;
   headers: Record<string, string>;
+  isOllama?: boolean;
 }
 
 const API_BASE_URLS: Record<ProviderConfig["apiProvider"], string> = {
@@ -29,6 +30,7 @@ export function resolveProvider(config: ProviderConfig): ResolvedProvider {
       model: config.ollamaModel || "qwen2.5:14b",
       baseURL: `${base}/v1`,
       headers: {},
+      isOllama: true,
     };
   }
 
@@ -75,8 +77,6 @@ export function resolveProvider(config: ProviderConfig): ResolvedProvider {
 }
 
 function detailOf(error: unknown): string {
-  // streamText wraps the gateway failure in `cause`; the top-level message is
-  // often the useless "No output generated."
   const parts: string[] = [];
   let current: unknown = error;
   for (let depth = 0; depth < 4 && current != null; depth += 1) {
@@ -140,7 +140,6 @@ function friendlyError(error: unknown, provider: ResolvedProvider, config: Provi
   return new Error(`${provider.label} call failed: ${raw}`);
 }
 
-
 class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -162,6 +161,7 @@ async function streamChat(provider: ResolvedProvider, system: string, user: stri
       { role: "system", content: system },
       { role: "user", content: user },
     ],
+    ...(provider.isOllama ? { format: "json" } : {}),
   };
   if (/^openai\/gpt-(6|5\.6)/.test(provider.model)) body["reasoning_effort"] = "low";
 
@@ -234,30 +234,88 @@ export async function callLLM(
   }
 }
 
-/** Extract the first JSON object from a model response, tolerating fences/prose. */
+/**
+ * Extract the first complete JSON object/array from a response,
+ * ignoring any markdown fences, preamble, or trailing commentary.
+ */
 export function parseJsonLoose<T>(raw: string): T {
   let text = raw.trim();
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fence?.[1]) text = fence[1].trim();
 
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end === -1) throw new Error("Model response contained no JSON object.");
-  const candidate = text.slice(start, end + 1);
-
+  // Try direct parse first
   try {
-    return JSON.parse(candidate) as T;
+    return JSON.parse(text) as T;
   } catch {
-    // Repair the two most common LLM JSON defects: trailing commas and raw newlines.
-    const repaired = candidate.replace(/,\s*([}\]])/g, "$1");
+    /* continue to extraction */
+  }
+
+  // Strip code block fences if present
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence?.[1]) {
     try {
-      return JSON.parse(repaired) as T;
-    } catch (error) {
-      throw new Error(
-        `Could not parse the model's JSON output (${(error as Error).message}). Try a stronger model.`,
-      );
+      return JSON.parse(fence[1].trim()) as T;
+    } catch {
+      text = fence[1].trim();
     }
   }
+
+  // Find the start of the first object or array
+  const firstBrace = text.indexOf("{");
+  const firstBracket = text.indexOf("[");
+  let startIdx = -1;
+  let openChar = "{";
+  let closeChar = "}";
+
+  if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+    startIdx = firstBrace;
+    openChar = "{";
+    closeChar = "}";
+  } else if (firstBracket !== -1) {
+    startIdx = firstBracket;
+    openChar = "[";
+    closeChar = "]";
+  }
+
+  if (startIdx !== -1) {
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+
+    for (let i = startIdx; i < text.length; i++) {
+      const char = text[i];
+
+      if (inString) {
+        if (escape) {
+          escape = false;
+        } else if (char === "\\") {
+          escape = true;
+        } else if (char === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (char === '"') {
+        inString = true;
+      } else if (char === openChar) {
+        depth++;
+      } else if (char === closeChar) {
+        depth--;
+        if (depth === 0) {
+          // Found the end of the first top-level JSON structure
+          const candidate = text.slice(startIdx, i + 1);
+          try {
+            return JSON.parse(candidate) as T;
+          } catch {
+            // Repair trailing commas before closing braces/brackets
+            const repaired = candidate.replace(/,\s*([}\]])/g, "$1");
+            return JSON.parse(repaired) as T;
+          }
+        }
+      }
+    }
+  }
+
+  throw new Error("Could not parse the model's JSON output. Try a stronger model.");
 }
 
 export async function callLLMJson<T>(
