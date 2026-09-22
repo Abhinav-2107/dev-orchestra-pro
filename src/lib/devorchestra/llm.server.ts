@@ -74,13 +74,43 @@ export function resolveProvider(config: ProviderConfig): ResolvedProvider {
   };
 }
 
+function detailOf(error: unknown): string {
+  // streamText wraps the gateway failure in `cause`; the top-level message is
+  // often the useless "No output generated."
+  const parts: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current != null; depth += 1) {
+    const e = current as { message?: string; responseBody?: string; cause?: unknown };
+    if (e.responseBody) parts.push(String(e.responseBody).slice(0, 400));
+    else if (e.message) parts.push(e.message);
+    current = e.cause;
+  }
+  return parts.join(" — ");
+}
+
+function statusOf(error: unknown): number | undefined {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current != null; depth += 1) {
+    const e = current as { statusCode?: number; status?: number; cause?: unknown };
+    if (typeof e.statusCode === "number") return e.statusCode;
+    if (typeof e.status === "number") return e.status;
+    current = e.cause;
+  }
+  return undefined;
+}
+
 function friendlyError(error: unknown, provider: ResolvedProvider, config: ProviderConfig): Error {
-  const raw = error instanceof Error ? error.message : String(error);
-  const status = (error as { statusCode?: number } | null)?.statusCode;
+  const raw = detailOf(error) || String(error);
+  const status = statusOf(error);
 
   if (config.mode === "ollama" && /fetch failed|ECONNREFUSED|Failed to fetch|network/i.test(raw)) {
     return new Error(
       `Cannot reach Ollama at ${config.ollamaBaseUrl}. Start it with \`ollama serve\` and pull the model (\`ollama pull ${provider.model}\`). Note: a hosted preview cannot reach your localhost - run this app locally for Ollama mode.`,
+    );
+  }
+  if (status === 400 && /model/i.test(raw)) {
+    return new Error(
+      `Model "${provider.model}" is not available on ${provider.label}. Pick a different model in the AI Provider panel. (${raw})`,
     );
   }
   if (status === 401 || status === 403) {
@@ -93,10 +123,13 @@ function friendlyError(error: unknown, provider: ResolvedProvider, config: Provi
     return new Error(`${provider.label} is rate limited (HTTP 429). Wait a moment and retry.`);
   }
   if (status === 404) {
-    return new Error(`Model "${provider.model}" was not found on ${provider.label}.`);
+    return new Error(
+      `Model "${provider.model}" was not found on ${provider.label}. Pick a different model in the AI Provider panel.`,
+    );
   }
   return new Error(`${provider.label} call failed: ${raw}`);
 }
+
 
 export async function callLLM(
   config: ProviderConfig,
