@@ -1,6 +1,7 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { streamText } from "ai";
 import type { ProviderConfig } from "./types";
+import { normalizeLovableModel } from "./types";
 
 /**
  * Provider abstraction. The agent architecture never talks to a vendor SDK
