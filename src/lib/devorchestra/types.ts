@@ -184,6 +184,23 @@ export interface RunState {
 export const SAMPLE_REQUIREMENT =
   "Build a To-Do application with user registration, login, create/edit/delete tasks, mark tasks complete, and a dashboard.";
 
+/** Models the built-in gateway currently serves. Anything else is rejected. */
+export const LOVABLE_MODELS = [
+  "openai/gpt-6-astra",
+  "openai/gpt-5.6-terra",
+  "openai/gpt-5.6-sol",
+  "openai/gpt-5.4-mini",
+  "openai/chat-latest",
+] as const;
+
+export const DEFAULT_LOVABLE_MODEL = "openai/gpt-6-astra";
+
+export function normalizeLovableModel(model: string | undefined): string {
+  return model && (LOVABLE_MODELS as readonly string[]).includes(model)
+    ? model
+    : DEFAULT_LOVABLE_MODEL;
+}
+
 export const DEFAULT_PROVIDER_CONFIG: ProviderConfig = {
   mode: "lovable",
   apiProvider: "openai",
@@ -191,7 +208,7 @@ export const DEFAULT_PROVIDER_CONFIG: ProviderConfig = {
   baseUrl: "",
   ollamaBaseUrl: "http://localhost:11434",
   ollamaModel: "qwen2.5:14b",
-  model: "google/gemini-3.7-flash",
+  model: DEFAULT_LOVABLE_MODEL,
 };
 
 export function emptyAgents(): Record<AgentId, AgentRecord> {

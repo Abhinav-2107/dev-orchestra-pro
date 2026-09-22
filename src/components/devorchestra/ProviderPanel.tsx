@@ -15,15 +15,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { testProviderFn } from "@/lib/devorchestra.functions";
 import type { ProviderConfig, ProviderMode } from "@/lib/devorchestra/types";
-
-const LOVABLE_MODELS = [
-  "google/gemini-3.7-flash",
-  "google/gemini-3.8-flash",
-  "google/gemini-3.1-pro-preview",
-  "openai/gpt-5.6-terra",
-  "openai/gpt-5.4-mini",
-];
-
+import { LOVABLE_MODELS, normalizeLovableModel } from "@/lib/devorchestra/types";
 
 const API_MODEL_HINTS: Record<string, string> = {
   openai: "gpt-4o-mini",
@@ -61,7 +53,28 @@ export function ProviderPanel({
 
   return (
     <div className="space-y-4">
-      <Tabs value={config.mode} onValueChange={(value) => set("mode", value as ProviderMode)}>
+      <Tabs
+        value={config.mode}
+        onValueChange={(value) => {
+          const mode = value as ProviderMode;
+          if (mode === "api") {
+            // A gateway id like "openai/gpt-6-astra" is meaningless to a direct provider key.
+            onChange({
+              ...config,
+              mode,
+              model: config.model.includes("/")
+                ? (API_MODEL_HINTS[config.apiProvider] ?? "gpt-4o-mini")
+                : config.model,
+            });
+            return;
+          }
+          if (mode === "lovable") {
+            onChange({ ...config, mode, model: normalizeLovableModel(config.model) });
+            return;
+          }
+          set("mode", mode);
+        }}
+      >
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="lovable">Lovable AI</TabsTrigger>
           <TabsTrigger value="api">API model</TabsTrigger>
@@ -72,7 +85,10 @@ export function ProviderPanel({
       {config.mode === "lovable" && (
         <div className="space-y-2">
           <Label className="mono-label">Model</Label>
-          <Select value={config.model} onValueChange={(value) => set("model", value)}>
+          <Select
+            value={normalizeLovableModel(config.model)}
+            onValueChange={(value) => set("model", value)}
+          >
             <SelectTrigger className="font-mono text-xs">
               <SelectValue />
             </SelectTrigger>

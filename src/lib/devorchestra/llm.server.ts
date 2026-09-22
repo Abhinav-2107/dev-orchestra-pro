@@ -1,6 +1,5 @@
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { streamText } from "ai";
 import type { ProviderConfig } from "./types";
+import { normalizeLovableModel } from "./types";
 
 /**
  * Provider abstraction. The agent architecture never talks to a vendor SDK
@@ -63,9 +62,10 @@ export function resolveProvider(config: ProviderConfig): ResolvedProvider {
   if (!lovableKey) {
     throw new Error("Lovable AI is not configured on this project (missing gateway key).");
   }
+  const model = normalizeLovableModel(config.model);
   return {
-    label: `Lovable AI (${config.model})`,
-    model: config.model || "google/gemini-3.7-flash",
+    label: `Lovable AI (${model})`,
+    model,
     baseURL: "https://ai.gateway.lovable.dev/v1",
     headers: {
       "Lovable-API-Key": lovableKey,
@@ -108,6 +108,16 @@ function friendlyError(error: unknown, provider: ResolvedProvider, config: Provi
       `Cannot reach Ollama at ${config.ollamaBaseUrl}. Start it with \`ollama serve\` and pull the model (\`ollama pull ${provider.model}\`). Note: a hosted preview cannot reach your localhost - run this app locally for Ollama mode.`,
     );
   }
+  if (status === 402 || /not enough credits|insufficient_quota|exceeded your current quota/i.test(raw)) {
+    return new Error(
+      config.mode === "lovable"
+        ? "The built-in Lovable AI credits for this workspace are used up, so no agent call can run. Top up credits, or switch to the “API model” tab and paste your own provider key."
+        : `${provider.label} reports no remaining quota on that key. ${raw}`,
+    );
+  }
+  if (/api key|unauthorized|invalid_api_key|permission/i.test(raw) && !status) {
+    return new Error(`${provider.label} rejected the API key. ${raw}`);
+  }
   if (status === 400 && /model/i.test(raw)) {
     return new Error(
       `Model "${provider.model}" is not available on ${provider.label}. Pick a different model in the AI Provider panel. (${raw})`,
@@ -131,27 +141,92 @@ function friendlyError(error: unknown, provider: ResolvedProvider, config: Provi
 }
 
 
+class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+/**
+ * Direct streaming chat-completions call. Streaming keeps bytes flowing during
+ * long agent turns, and reading the response ourselves means the caller sees the
+ * provider's real status and error body instead of a generic SDK message.
+ */
+async function streamChat(provider: ResolvedProvider, system: string, user: string) {
+  const body: Record<string, unknown> = {
+    model: provider.model,
+    stream: true,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+  };
+  if (/^openai\/gpt-(6|5\.6)/.test(provider.model)) body["reasoning_effort"] = "low";
+
+  const res = await fetch(`${provider.baseURL}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...provider.headers },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok || !res.body) {
+    const detail = (await res.text().catch(() => "")).slice(0, 600);
+    let message = detail;
+    try {
+      const parsed = JSON.parse(detail) as { message?: string; error?: { message?: string } };
+      message = parsed.error?.message || parsed.message || detail;
+    } catch {
+      /* keep raw text */
+    }
+    throw new ApiError(res.status, message || `HTTP ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+  let streamError = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) continue;
+      const payload = trimmed.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      try {
+        const chunk = JSON.parse(payload) as {
+          choices?: { delta?: { content?: string } }[];
+          error?: { message?: string };
+        };
+        if (chunk.error?.message) streamError = chunk.error.message;
+        const delta = chunk.choices?.[0]?.delta?.content;
+        if (delta) text += delta;
+      } catch {
+        /* ignore keep-alive / partial frames */
+      }
+    }
+  }
+
+  if (streamError && !text.trim()) throw new ApiError(0, streamError);
+  return text;
+}
+
 export async function callLLM(
   config: ProviderConfig,
   system: string,
   user: string,
 ): Promise<{ text: string; model: string; label: string }> {
   const provider = resolveProvider(config);
-  const client = createOpenAICompatible({
-    name: "lovable",
-    baseURL: provider.baseURL,
-    headers: provider.headers,
-  });
 
   try {
-    // Streaming on the wire: long agent calls must not sit silent behind a buffered request.
-    const result = streamText({
-      model: client(provider.model),
-      system,
-      prompt: user,
-      maxRetries: 1,
-    });
-    const text = await result.text;
+    const text = await streamChat(provider, system, user);
     if (!text?.trim()) throw new Error("The model returned an empty response.");
     return { text, model: provider.model, label: provider.label };
   } catch (error) {
