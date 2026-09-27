@@ -38,7 +38,10 @@ Schema:
   "backlog": [{"id":"PB-1","title":string,"description":string,"story_ids":[string],"estimate_points":number,"priority":"high"|"medium"|"low","depends_on":[string]}],
   "sprints": [{"index":0,"name":string,"goal":string,"backlog_item_ids":[string]}]
 }
-Create 2-3 sprints only. Every backlog item must be assigned to exactly one sprint.`,
+Create 2-3 sprints only. Every backlog item must be assigned to exactly one sprint.
+Unless the requirement explicitly says "API only" / "backend only", the product MUST have a user interface:
+include backlog items for the frontend screens and assign them to sprints (at the latest the final sprint).
+Sprint 1 must deliver a runnable skeleton: server entry point (e.g. index.js) and a minimal frontend page.`,
   },
   architecture: {
     title: "Architecture Agent",
@@ -77,7 +80,11 @@ Schema:
   "files": [{"path": string, "language": string, "action": "create"|"update", "content": string}],
   "run_instructions": string
 }
-Emit 3-8 files per sprint. "content" is the full final file content.`,
+Emit 3-10 files per sprint. "content" is the full final file content.
+Mandatory, highest priority (emit these before anything else if they don't exist yet):
+- The runnable entry point referenced by package.json "main"/"start" (e.g. index.js or server.js) that mounts all routes and calls listen().
+- Every local file that another file imports/requires.
+- Unless the requirement is explicitly API-only: a working frontend (e.g. public/index.html + public/app.js served by the backend, or a React app under client/) that calls the backend APIs for this sprint's features.`,
   },
   review: {
     title: "Review + Dependency Agent",
@@ -95,7 +102,9 @@ Schema:
   "dependency_graph": [{"from": string, "to": string}],
   "missing_functionality": [string]
 }
-Only use verdict "clean" when there are no critical or major findings.`,
+Only use verdict "clean" when there are no critical or major findings.
+Always report as CRITICAL: a missing file referenced by package.json "main"/"start", any import of a non-existent local file,
+and (unless the requirement is explicitly API-only) the absence of any frontend/UI files.`,
   },
   testing: {
     title: "Testing Agent",
@@ -103,6 +112,7 @@ Only use verdict "clean" when there are no critical or major findings.`,
 You design tests for the sprint's acceptance criteria, then statically execute them against the actual file contents:
 trace imports, function signatures, routes and state handling to decide whether each test would pass.
 Be strict and evidence-based: if a referenced symbol, file, route or dependency does not exist, the test FAILS.
+Always include a test that the package.json "main"/"start" entry file exists and starts the server, and (unless API-only) a test that a frontend page exists and calls the APIs.
 ${JSON_RULES}
 
 Schema:
