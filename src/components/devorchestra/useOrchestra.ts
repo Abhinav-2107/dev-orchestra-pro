@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { runStageFn, loadRunFn } from "@/lib/devorchestra.functions";
@@ -10,6 +10,34 @@ import {
   type ProviderConfig,
   type RunState,
 } from "@/lib/devorchestra/types";
+
+const PROVIDER_STORAGE_KEY = "devorchestra-provider-config";
+const DATABASE_STORAGE_KEY = "devorchestra-database";
+
+export const DATABASE_OPTIONS = [
+  { value: "mongodb", label: "MongoDB (Mongoose)" },
+  { value: "postgresql", label: "PostgreSQL" },
+  { value: "mysql", label: "MySQL" },
+  { value: "sqlite", label: "SQLite" },
+  { value: "none", label: "No database / in-memory" },
+] as const;
+
+export type DatabaseChoice = (typeof DATABASE_OPTIONS)[number]["value"];
+
+function databaseHint(choice: DatabaseChoice): string {
+  switch (choice) {
+    case "mongodb":
+      return "Database: use MongoDB with Mongoose models, reading the connection string from process.env.MONGODB_URI (default mongodb://localhost:27017/<project>). Include a .env.example.";
+    case "postgresql":
+      return "Database: use PostgreSQL with the pg driver, reading the connection string from process.env.DATABASE_URL. Include a .env.example and a schema.sql.";
+    case "mysql":
+      return "Database: use MySQL with the mysql2 driver, reading the connection string from process.env.DATABASE_URL. Include a .env.example and a schema.sql.";
+    case "sqlite":
+      return "Database: use SQLite (better-sqlite3) with a local file database so the app runs with zero external setup.";
+    default:
+      return "Database: no external database — keep data in memory or in a local JSON file so the app runs with zero setup.";
+  }
+}
 
 function providerLabel(config: ProviderConfig) {
   if (config.mode === "ollama") return `Ollama · ${config.ollamaModel}`;
