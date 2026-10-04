@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { runStageFn, loadRunFn } from "@/lib/devorchestra.functions";
@@ -10,6 +10,34 @@ import {
   type ProviderConfig,
   type RunState,
 } from "@/lib/devorchestra/types";
+
+const PROVIDER_STORAGE_KEY = "devorchestra-provider-config";
+const DATABASE_STORAGE_KEY = "devorchestra-database";
+
+export const DATABASE_OPTIONS = [
+  { value: "mongodb", label: "MongoDB (Mongoose)" },
+  { value: "postgresql", label: "PostgreSQL" },
+  { value: "mysql", label: "MySQL" },
+  { value: "sqlite", label: "SQLite" },
+  { value: "none", label: "No database / in-memory" },
+] as const;
+
+export type DatabaseChoice = (typeof DATABASE_OPTIONS)[number]["value"];
+
+function databaseHint(choice: DatabaseChoice): string {
+  switch (choice) {
+    case "mongodb":
+      return "Database: use MongoDB with Mongoose models, reading the connection string from process.env.MONGODB_URI (default mongodb://localhost:27017/<project>). Include a .env.example.";
+    case "postgresql":
+      return "Database: use PostgreSQL with the pg driver, reading the connection string from process.env.DATABASE_URL. Include a .env.example and a schema.sql.";
+    case "mysql":
+      return "Database: use MySQL with the mysql2 driver, reading the connection string from process.env.DATABASE_URL. Include a .env.example and a schema.sql.";
+    case "sqlite":
+      return "Database: use SQLite (better-sqlite3) with a local file database so the app runs with zero external setup.";
+    default:
+      return "Database: no external database — keep data in memory or in a local JSON file so the app runs with zero setup.";
+  }
+}
 
 function providerLabel(config: ProviderConfig) {
   if (config.mode === "ollama") return `Ollama · ${config.ollamaModel}`;
@@ -25,6 +53,7 @@ export function useOrchestra() {
   const [projectName, setProjectName] = useState("Task Manager");
   const [requirement, setRequirement] = useState(SAMPLE_REQUIREMENT);
   const [config, setConfig] = useState<ProviderConfig>(DEFAULT_PROVIDER_CONFIG);
+  const [database, setDatabase] = useState<DatabaseChoice>("mongodb");
   const [state, setState] = useState<RunState>(() =>
     createRunState(
       "Task Manager",
@@ -38,6 +67,42 @@ export function useOrchestra() {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const stopRef = useRef(false);
+
+  // Restore the provider + database choices saved in this browser.
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(PROVIDER_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as ProviderConfig;
+        setConfig({ ...DEFAULT_PROVIDER_CONFIG, ...parsed });
+      }
+      const savedDb = window.localStorage.getItem(DATABASE_STORAGE_KEY);
+      if (savedDb && DATABASE_OPTIONS.some((o) => o.value === savedDb)) {
+        setDatabase(savedDb as DatabaseChoice);
+      }
+    } catch {
+      /* ignore corrupt storage */
+    }
+  }, []);
+
+  // Persist provider settings so a reload or Resume never loses them.
+  // API keys stay in memory only: strip them before writing to storage.
+  useEffect(() => {
+    try {
+      const { apiKey: _apiKey, ...rest } = config;
+      window.localStorage.setItem(PROVIDER_STORAGE_KEY, JSON.stringify(rest));
+    } catch {
+      /* storage unavailable */
+    }
+  }, [config]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(DATABASE_STORAGE_KEY, database);
+    } catch {
+      /* storage unavailable */
+    }
+  }, [database]);
 
   const runStage = useServerFn(runStageFn);
   const loadRun = useServerFn(loadRunFn);
@@ -95,9 +160,10 @@ export function useOrchestra() {
         toast.error("Describe what to build first.");
         return;
       }
+      const fullRequirement = `${requirement.trim()}\n\n${databaseHint(database)}`;
       const fresh = createRunState(
         projectName.trim() || "Untitled project",
-        requirement.trim(),
+        fullRequirement,
         mode,
         providerLabel(config),
         modelOf(config),
@@ -108,7 +174,7 @@ export function useOrchestra() {
       else if (final.status === "failed" && final.files.length > 0)
         toast.warning("All sprints built, but some tests still report findings.");
     },
-    [config, drive, projectName, requirement],
+    [config, database, drive, projectName, requirement],
   );
 
   const resume = useCallback(async () => {
@@ -145,6 +211,8 @@ export function useOrchestra() {
     setRequirement,
     config,
     setConfig,
+    database,
+    setDatabase,
     state,
     setState,
     activeStage,

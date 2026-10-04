@@ -323,8 +323,23 @@ export async function callLLMJson<T>(
   system: string,
   user: string,
 ): Promise<{ data: T; model: string; label: string; raw: string }> {
-  const { text, model, label } = await callLLM(config, system, user);
-  return { data: parseJsonLoose<T>(text), model, label, raw: text };
+  const first = await callLLM(config, system, user);
+  try {
+    return { data: parseJsonLoose<T>(first.text), model: first.model, label: first.label, raw: first.text };
+  } catch (firstError) {
+    // One automatic retry: tell the model exactly what went wrong and ask for
+    // a clean re-issue. Smaller local models often succeed on the second pass.
+    const retryUser = `${user}\n\nYour previous reply could not be parsed as JSON (${(firstError as Error).message}). Reply again with ONLY the JSON object: no markdown fences, no commentary, no trailing text, and keep every string value on a single line with quotes escaped.`;
+    const second = await callLLM(config, system, retryUser);
+    try {
+      return { data: parseJsonLoose<T>(second.text), model: second.model, label: second.label, raw: second.text };
+    } catch {
+      const snippet = second.text.replace(/\s+/g, " ").slice(0, 300);
+      throw new Error(
+        `Could not parse the model's JSON output after 2 attempts. Raw output started with: "${snippet}". Try a stronger model.`,
+      );
+    }
+  }
 }
 
 export async function testProviderConnection(config: ProviderConfig) {
