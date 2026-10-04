@@ -53,6 +53,7 @@ export function useOrchestra() {
   const [projectName, setProjectName] = useState("Task Manager");
   const [requirement, setRequirement] = useState(SAMPLE_REQUIREMENT);
   const [config, setConfig] = useState<ProviderConfig>(DEFAULT_PROVIDER_CONFIG);
+  const [database, setDatabase] = useState<DatabaseChoice>("mongodb");
   const [state, setState] = useState<RunState>(() =>
     createRunState(
       "Task Manager",
@@ -66,6 +67,42 @@ export function useOrchestra() {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const stopRef = useRef(false);
+
+  // Restore the provider + database choices saved in this browser.
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(PROVIDER_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as ProviderConfig;
+        setConfig({ ...DEFAULT_PROVIDER_CONFIG, ...parsed });
+      }
+      const savedDb = window.localStorage.getItem(DATABASE_STORAGE_KEY);
+      if (savedDb && DATABASE_OPTIONS.some((o) => o.value === savedDb)) {
+        setDatabase(savedDb as DatabaseChoice);
+      }
+    } catch {
+      /* ignore corrupt storage */
+    }
+  }, []);
+
+  // Persist provider settings so a reload or Resume never loses them.
+  // API keys stay in memory only: strip them before writing to storage.
+  useEffect(() => {
+    try {
+      const { apiKey: _apiKey, ...rest } = config;
+      window.localStorage.setItem(PROVIDER_STORAGE_KEY, JSON.stringify(rest));
+    } catch {
+      /* storage unavailable */
+    }
+  }, [config]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(DATABASE_STORAGE_KEY, database);
+    } catch {
+      /* storage unavailable */
+    }
+  }, [database]);
 
   const runStage = useServerFn(runStageFn);
   const loadRun = useServerFn(loadRunFn);
