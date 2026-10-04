@@ -160,9 +160,10 @@ export function useOrchestra() {
         toast.error("Describe what to build first.");
         return;
       }
+      const fullRequirement = `${requirement.trim()}\n\n${databaseHint(database)}`;
       const fresh = createRunState(
         projectName.trim() || "Untitled project",
-        requirement.trim(),
+        fullRequirement,
         mode,
         providerLabel(config),
         modelOf(config),
@@ -173,7 +174,7 @@ export function useOrchestra() {
       else if (final.status === "failed" && final.files.length > 0)
         toast.warning("All sprints built, but some tests still report findings.");
     },
-    [config, drive, projectName, requirement],
+    [config, database, drive, projectName, requirement],
   );
 
   const resume = useCallback(async () => {
@@ -210,6 +211,8 @@ export function useOrchestra() {
     setRequirement,
     config,
     setConfig,
+    database,
+    setDatabase,
     state,
     setState,
     activeStage,

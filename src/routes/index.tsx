@@ -18,6 +18,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { AgentPipeline } from "@/components/devorchestra/AgentPipeline";
 import { ArchitectureView } from "@/components/devorchestra/ArchitectureView";
@@ -28,7 +35,7 @@ import { RequirementsView } from "@/components/devorchestra/RequirementsView";
 import { ReviewView } from "@/components/devorchestra/ReviewView";
 import { SprintBoard } from "@/components/devorchestra/SprintBoard";
 import { TestView } from "@/components/devorchestra/TestView";
-import { useOrchestra } from "@/components/devorchestra/useOrchestra";
+import { useOrchestra, DATABASE_OPTIONS, type DatabaseChoice } from "@/components/devorchestra/useOrchestra";
 import { listRunsFn } from "@/lib/devorchestra.functions";
 import { STAGE_LABELS } from "@/lib/devorchestra/pipeline";
 import { SAMPLE_REQUIREMENT } from "@/lib/devorchestra/types";
@@ -119,6 +126,28 @@ function Dashboard() {
                 >
                   <Wand2 /> Load sample To-Do project
                 </Button>
+              </div>
+              <div className="space-y-2">
+                <Label className="mono-label">Database</Label>
+                <Select
+                  value={orchestra.database}
+                  onValueChange={(value) => orchestra.setDatabase(value as DatabaseChoice)}
+                >
+                  <SelectTrigger className="text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DATABASE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value} className="text-xs">
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  The agents generate matching models, connection code and a .env.example. Your real
+                  credentials go in the .env file on your machine — never here.
+                </p>
               </div>
             </CardContent>
           </Card>
