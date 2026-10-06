@@ -336,6 +336,7 @@ export async function runStage(
       }
 
       case "review": {
+        const gate = staticGate(state.files, state.requirement);
         const { data, model } = await callLLMJson<Omit<ReviewResult, "sprint" | "createdAt">>(
           config,
           AGENT_PROMPTS.review.system,
@@ -343,19 +344,43 @@ export async function runStage(
             state.architectures.find((a) => a.sprint === sprintIndex),
             null,
             2,
-          )}\n\nProject files:\n${projectSnapshot(state)}`,
+          )}\n\n${gateText(gate)}\n\nProject files:\n${projectSnapshot(state)}`,
         );
         const review: ReviewResult = {
           ...(data as Omit<ReviewResult, "sprint" | "createdAt">),
+          findings: [...(data.findings ?? [])],
           sprint: sprintIndex,
           createdAt: new Date().toISOString(),
         };
+        // Deterministic checks override the model's opinion.
+        for (const issue of gate) {
+          review.findings.push({ severity: "critical", file: issue.file, issue: issue.message, suggested_fix: issue.fix });
+        }
+        const isFinal = sprintIndex === state.sprints.length - 1;
+        const missing = (review.requirements_coverage ?? []).filter((c) => !c.implemented);
+        if (isFinal) {
+          for (const c of missing) {
+            review.findings.push({
+              severity: "major",
+              file: "(requirement)",
+              issue: `Requirement ${c.id} is not implemented end-to-end. ${c.evidence ?? ""}`.trim(),
+              suggested_fix: "Implement the backend route, model fields and the matching UI controls in public/.",
+            });
+          }
+        }
+        if (review.findings.some((f) => f.severity === "critical" || f.severity === "major")) {
+          review.verdict = "needs_changes";
+        }
         state.reviews.push(review);
         log(
           state,
           "review",
           review.verdict === "clean" ? "success" : "warn",
-          `Review verdict: ${review.verdict} (${review.findings?.length ?? 0} findings).`,
+          `Review verdict: ${review.verdict} (${review.findings.length} findings, ${gate.length} from automated checks${
+            review.requirements_coverage?.length
+              ? `, ${review.requirements_coverage.length - missing.length}/${review.requirements_coverage.length} requirements covered`
+              : ""
+          }).`,
         );
         finishAgent(state, "review", review, model, started);
         break;
@@ -370,7 +395,11 @@ export async function runStage(
         }>(
           config,
           AGENT_PROMPTS.correction.system,
-          `Review findings to fix:\n${JSON.stringify(review, null, 2)}\n\nProject files:\n${projectSnapshot(state)}`,
+          `${sprintBrief(state, sprintIndex)}\n\nReview findings to fix:\n${JSON.stringify(
+            { summary: review?.summary, findings: review?.findings, missing_functionality: review?.missing_functionality },
+            null,
+            2,
+          )}\n\nProject files:\n${projectSnapshot(state, (review?.findings ?? []).map((f) => f.file))}`,
         );
         const changed = mergeFiles(state, data.files ?? [], sprintIndex);
         await writeWorkspace(state, state.files.filter((f) => changed.includes(f.path)));
