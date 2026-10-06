@@ -97,6 +97,8 @@ export interface ReviewResult {
   }[];
   dependency_graph: { from: string; to: string }[];
   missing_functionality: string[];
+  /** Per-requirement traceability: is each FR actually implemented in API + UI? */
+  requirements_coverage?: { id: string; implemented: boolean; evidence: string }[];
 }
 
 export interface TestCase {
