@@ -1,6 +1,7 @@
 import { AGENT_PROMPTS } from "./prompts";
 import { callLLMJson } from "./llm.server";
 import { fileLanguage, type Stage } from "./pipeline";
+import { staticGate, type GateIssue } from "./quality";
 import type {
   AgentId,
   JsonValue,
@@ -21,11 +22,48 @@ function log(state: RunState, agent: AgentId | "orchestrator", level: LogEntry["
   if (state.logs.length > 500) state.logs.splice(0, state.logs.length - 500);
 }
 
-function projectSnapshot(state: RunState, max = 22000) {
-  const body = state.files
-    .map((f) => `--- FILE: ${f.path} (rev ${f.revision}) ---\n${f.content}`)
-    .join("\n\n");
-  return body.length > max ? `${body.slice(0, max)}\n... [truncated]` : body || "(empty project)";
+/**
+ * Whole-file project context. Files named in the current findings come first,
+ * then package.json / entry / frontend, then the rest. Files are never cut in
+ * half (a half file makes the model "fix" it into an empty or broken one);
+ * anything over budget is listed by path so the model knows it exists.
+ */
+function projectSnapshot(state: RunState, focus: string[] = [], max = 30000) {
+  if (state.files.length === 0) return "(empty project)";
+  const focusSet = new Set(focus);
+  const rank = (path: string) => {
+    if (focusSet.has(path)) return 0;
+    if (path === "package.json") return 1;
+    if (/^(index|server|app)\.m?js$/.test(path)) return 2;
+    if (path.startsWith("public/")) return 3;
+    return 4;
+  };
+  const ordered = [...state.files].sort((a, b) => rank(a.path) - rank(b.path));
+  const parts: string[] = [];
+  const omitted: string[] = [];
+  let used = 0;
+  for (const f of ordered) {
+    const block = `--- FILE: ${f.path} (rev ${f.revision}) ---\n${f.content}`;
+    if (used + block.length > max && parts.length > 0) {
+      omitted.push(`${f.path} (${f.content.length} chars)`);
+      continue;
+    }
+    parts.push(block);
+    used += block.length;
+  }
+  if (omitted.length) {
+    parts.push(
+      `--- OTHER EXISTING FILES (content omitted for length; they exist and work — do not re-emit unless you change them) ---\n${omitted.join("\n")}`,
+    );
+  }
+  return parts.join("\n\n");
+}
+
+function gateText(issues: GateIssue[]) {
+  if (!issues.length) return "Automated checks: all passed.";
+  return `Automated checks FAILED (these are facts, not opinions — fix every one):\n${issues
+    .map((i, n) => `${n + 1}. [${i.file}] ${i.message} Fix: ${i.fix}`)
+    .join("\n")}`;
 }
 
 function sprintBrief(state: RunState, sprintIndex: number) {
@@ -34,12 +72,24 @@ function sprintBrief(state: RunState, sprintIndex: number) {
   const items = state.backlog.filter((b) => sprint.backlog_item_ids.includes(b.id));
   const storyIds = new Set(items.flatMap((i) => i.story_ids));
   const stories = (state.requirements?.user_stories ?? []).filter((s) => storyIds.has(s.id));
+  const isFinal = sprintIndex === state.sprints.length - 1;
   return [
-    `SPRINT ${sprintIndex + 1}/${state.sprints.length}: ${sprint.name}`,
+    `Original product request:\n"""${state.requirement}"""`,
+    `ALL functional requirements of the product:\n${JSON.stringify(
+      state.requirements?.functional_requirements ?? [],
+      null,
+      2,
+    )}`,
+    `SPRINT ${sprintIndex + 1}/${state.sprints.length}: ${sprint.name}${isFinal ? " (FINAL SPRINT)" : ""}`,
     `Goal: ${sprint.goal}`,
     `Backlog items:\n${JSON.stringify(items, null, 2)}`,
     `Relevant user stories & acceptance criteria:\n${JSON.stringify(stories, null, 2)}`,
-  ].join("\n\n");
+    isFinal
+      ? "This is the FINAL sprint: after it, EVERY functional requirement above must work end-to-end — a backend route AND a visible, working control in public/index.html + public/app.js. Every field mentioned in the request (e.g. description, due date) must exist in the model, the API, the form and the list."
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function mergeFiles(
@@ -52,6 +102,15 @@ function mergeFiles(
     if (!file?.path || typeof file.content !== "string") continue;
     const path = file.path.replace(/^\.?\//, "");
     const existing = state.files.find((f) => f.path === path);
+    // Never let an empty/stub answer wipe out a real file.
+    if (file.content.trim().length < 30) {
+      log(state, "orchestrator", "warn", `Ignored empty content returned for ${path}.`);
+      continue;
+    }
+    if (existing && existing.content.length > 400 && file.content.length < existing.content.length * 0.25) {
+      log(state, "orchestrator", "warn", `Ignored suspiciously truncated rewrite of ${path} (${file.content.length} vs ${existing.content.length} chars).`);
+      continue;
+    }
     if (existing) {
       existing.content = file.content;
       existing.language = file.language || fileLanguage(path);
