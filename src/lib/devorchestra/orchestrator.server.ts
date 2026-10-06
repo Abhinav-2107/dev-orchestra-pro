@@ -432,23 +432,49 @@ export async function runStage(
         }>(
           config,
           AGENT_PROMPTS.testing.system,
-          `${sprintBrief(state, sprintIndex)}\n\nProject files:\n${projectSnapshot(state)}`,
+          `${sprintBrief(state, sprintIndex)}\n\n${gateText(
+            staticGate(state.files, state.requirement),
+          )}\n\nProject files:\n${projectSnapshot(state)}`,
         );
         if (data.test_files?.length) {
           mergeFiles(state, data.test_files, sprintIndex);
           await writeWorkspace(state, state.files.filter((f) => f.path.includes("test")));
         }
+        // Re-run the deterministic gate after test files were added; any issue is a hard failure.
+        const gate = staticGate(state.files, state.requirement);
+        const gateCases: TestRun["cases"] = gate.map((issue, i) => ({
+          id: `AUTO-${i + 1}`,
+          name: `Automated check: ${issue.message}`,
+          target_file: issue.file,
+          kind: "integration",
+          expectation: issue.fix,
+          status: "fail",
+          failure_reason: issue.message,
+        }));
+        const llmCases = data.cases ?? [];
+        const verdict: TestRun["verdict"] =
+          gate.length === 0 && data.verdict === "PASS" && llmCases.every((c) => c.status === "pass")
+            ? "PASS"
+            : "FAIL";
         const run: TestRun = {
           sprint: sprintIndex,
           attempt,
           createdAt: new Date().toISOString(),
-          verdict: data.verdict === "PASS" ? "PASS" : "FAIL",
+          verdict,
           command: data.command ?? "npm test",
           stdout: data.stdout ?? "",
-          stderr: data.stderr ?? "",
-          summary: data.summary ?? "",
-          cases: data.cases ?? [],
-          errors: data.errors ?? [],
+          stderr: [data.stderr ?? "", ...gate.map((g) => `AUTOMATED CHECK FAILED [${g.file}]: ${g.message}`)]
+            .filter(Boolean)
+            .join("\n"),
+          summary:
+            gate.length && data.verdict === "PASS"
+              ? `Model reported PASS, but ${gate.length} automated check(s) failed. ${data.summary ?? ""}`
+              : (data.summary ?? ""),
+          cases: [...llmCases, ...gateCases],
+          errors: [
+            ...(data.errors ?? []),
+            ...gate.map((g) => ({ file: g.file, message: g.message, fix_hint: g.fix })),
+          ],
         };
         state.tests.push(run);
         const sprint = state.sprints[sprintIndex];
@@ -457,7 +483,7 @@ export async function runStage(
           state,
           "testing",
           run.verdict === "PASS" ? "success" : "error",
-          `Attempt ${attempt}: ${run.verdict} - ${run.cases.filter((c) => c.status === "pass").length}/${run.cases.length} cases passed.`,
+          `Attempt ${attempt}: ${run.verdict} - ${run.cases.filter((c) => c.status === "pass").length}/${run.cases.length} cases passed${gate.length ? ` (${gate.length} automated checks failed)` : ""}.`,
         );
         if (run.verdict === "FAIL" && attempt >= state.retryLimit) {
           log(
@@ -481,11 +507,11 @@ export async function runStage(
         }>(
           config,
           AGENT_PROMPTS.correction.system,
-          `Structured error report from the Testing Agent:\n${JSON.stringify(
+          `${sprintBrief(state, sprintIndex)}\n\nStructured error report from the Testing Agent:\n${JSON.stringify(
             { verdict: latest?.verdict, stderr: latest?.stderr, errors: latest?.errors, failing: latest?.cases?.filter((c) => c.status === "fail") },
             null,
             2,
-          )}\n\nProject files:\n${projectSnapshot(state)}`,
+          )}\n\nProject files:\n${projectSnapshot(state, (latest?.errors ?? []).map((e) => e.file))}`,
         );
         const changed = mergeFiles(state, data.files ?? [], sprintIndex);
         await writeWorkspace(state, state.files.filter((f) => changed.includes(f.path)));
