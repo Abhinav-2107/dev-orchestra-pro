@@ -310,7 +310,9 @@ export async function runStage(
               state.architectures.find((a) => a.sprint === sprintIndex),
               null,
               2,
-            )}\n\nCurrent project files (maintain, do not regenerate unchanged files):\n${projectSnapshot(state)}`;
+            )}${
+              state.files.length ? `\n\n${gateText(staticGate(state.files, state.requirement))}` : ""
+            }\n\nCurrent project files (maintain, do not regenerate unchanged files):\n${projectSnapshot(state)}`;
         const { data, model } = await callLLMJson<{
           notes: string;
           run_instructions?: string;
