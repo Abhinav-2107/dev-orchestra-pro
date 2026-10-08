@@ -1,0 +1,4 @@
+- [ ] Add deterministic checks for editable task fields, full dashboard interactions, and non-placeholder test coverage.
+- [ ] Tighten generation/review/testing prompts so tests do not claim execution unless evidenced and end-to-end task workflows are included.
+- [ ] Inspect the newest saved Task Manager run and determine whether its generated files can be completed from the request.
+- [ ] Verify the changes and report any limits on executable testing.
