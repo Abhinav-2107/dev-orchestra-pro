@@ -46,10 +46,14 @@ function isTestFile(path: string) {
   return /(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[jt]sx?$/i.test(path);
 }
 
+function isTaskApp(requirement: string) {
+  return /\b(to[\s-]?do|todo app|task (?:management|manager|app)|manage tasks)\b/i.test(requirement);
+}
+
 function packageName(spec: string) {
   if (spec.startsWith("node:")) return null;
   const parts = spec.split("/");
-  const name = spec.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]!;
+  const name = spec.startsWith("@") ? parts.slice(0, 2).join("/") : (parts[0] ?? spec);
   return NODE_BUILTINS.has(name) || NODE_BUILTINS.has(spec) ? null : name;
 }
 
@@ -59,6 +63,7 @@ export function staticGate(files: GeneratedFile[], requirement: string): GateIss
   const has = (p: string) => byPath.has(normalize(p));
   const apiOnly = isApiOnly(requirement);
   const reactAllowed = wantsReact(requirement);
+  const taskApp = isTaskApp(requirement);
 
   // 1. Empty, stub or placeholder files.
   for (const f of files) {
@@ -178,10 +183,112 @@ export function staticGate(files: GeneratedFile[], requirement: string): GateIss
     }
   }
 
-  // 5. Tests must be real.
-  for (const f of files.filter((x) => isTestFile(x.path))) {
-    if (f.content.length < 200 || !/\b(test|it|describe)\s*\(/.test(f.content)) {
-      issues.push({ file: f.path, message: "Test file is a placeholder (no real test cases).", fix: "Write real test cases with assertions against the actual routes/functions." });
+  // 5. Tests must contain actual assertions, not only a plausible test title.
+  const testFiles = files.filter((f) => isTestFile(f.path));
+  const testSource = testFiles.map((f) => f.content).join("\n");
+  for (const f of testFiles) {
+    if (f.content.length < 200 || !/\b(test|it|describe)\s*\(/.test(f.content) || !/\bassert\./i.test(f.content)) {
+      issues.push({ file: f.path, message: "Test file is a placeholder or has no assertions.", fix: "Write real test cases with assertions against the actual routes/functions." });
+    }
+  }
+
+  // Task applications need field-level editing, useful dashboard summaries,
+  // and named tests for each user workflow. These checks are static only.
+  if (taskApp) {
+    const backendFiles = files.filter((f) =>
+      /\.(?:[cm]?js|ts|sql)$/i.test(f.path) && !f.path.startsWith("public/") && !isTestFile(f.path),
+    );
+    const backendSource = backendFiles.map((f) => f.content).join("\n");
+    const modelFiles = backendFiles.filter((f) => /(?:model|schema|migration)/i.test(f.path));
+    if (!modelFiles.some((f) => /\btitle\b/i.test(f.content) && /\bdescription\b/i.test(f.content))) {
+      issues.push({
+        file: modelFiles[0]?.path ?? "models/Task.js",
+        message: "Task model/schema does not define both title and description fields.",
+        fix: "Define title and description on the task model/schema and persist both fields.",
+      });
+    }
+
+    const updateAnchors = [...backendSource.matchAll(/exports\.(?:update|edit)\b|(?:async\s+)?function\s+(?:update|edit)\w*\b|(?:const|let)\s+(?:update|edit)\w*\s*=|(?:update|edit)(?:Task|Todo)\s*:\s*async/gi)];
+    const updateBodies = updateAnchors.map((match, index) => {
+      const start = match.index ?? 0;
+      const next = updateAnchors[index + 1]?.index ?? backendSource.length;
+      return backendSource.slice(start, next);
+    });
+    const writesEditableFields = updateBodies.some((body) =>
+      /\btitle\b/i.test(body) && /\bdescription\b/i.test(body) &&
+      (/\bUPDATE\s+\w+\s+SET\b/i.test(body) || /\.(?:update|updateOne|findByIdAndUpdate|save)\s*\(/i.test(body)),
+    );
+    if (!writesEditableFields) {
+      issues.push({
+        file: backendFiles.find((f) => /task|todo/i.test(f.path) && /update|edit/i.test(f.content))?.path ?? "taskController.js",
+        message: "Task update logic does not persist both title and description.",
+        fix: "Make the task update endpoint accept and save title and description, not only completion status.",
+      });
+    }
+    const routeWired = backendFiles.some((f) =>
+      /\b(?:router|app)\.(?:put|patch)\s*\(/i.test(f.content) &&
+      /(?:task|todo|:\w*id)/i.test(f.content) && /update|edit/i.test(f.content),
+    );
+    if (!routeWired) {
+      issues.push({
+        file: "routes/",
+        message: "No PUT/PATCH task route is wired to update logic.",
+        fix: "Wire a task PUT/PATCH endpoint to the update handler, including the task ID route parameter.",
+      });
+    }
+
+    if (!apiOnly && /\bdashboard\b/i.test(requirement)) {
+      const frontend = files.filter((f) => f.path.startsWith("public/")).map((f) => f.content).join("\n");
+      const hasMetrics = /\b(?:total|all)\b/i.test(frontend) && /\b(?:active|pending)\b/i.test(frontend) && /\bcompleted\b/i.test(frontend);
+      const hasTaskList = /taskList|task-list|task list/i.test(frontend);
+      const hasFilters = /\ball\b/i.test(frontend) && /\bactive\b/i.test(frontend) && /\bcompleted\b/i.test(frontend) && /filter|data-filter|filterTasks/i.test(frontend);
+      if (!hasMetrics || !hasTaskList || !hasFilters) {
+        issues.push({
+          file: "public/index.html",
+          message: "Task dashboard lacks total/active/completed summaries, a task list, or All/Active/Completed filters.",
+          fix: "Build a dashboard with total, active and completed counts, a task list, and working All/Active/Completed filters.",
+        });
+      }
+    }
+
+    const appScripts = files.filter((f) => f.path.startsWith("public/") && /\.js$/i.test(f.path)).map((f) => f.content).join("\n");
+    const hasEditUi = /edit(?:Task|Todo|task|todo)|edit-button|saveEdit|editing/i.test(appScripts) &&
+      /\btitle\b/i.test(appScripts) && /\bdescription\b/i.test(appScripts) &&
+      /method\s*:\s*["'`](?:PUT|PATCH)["'`]/i.test(appScripts);
+    if (!apiOnly && !hasEditUi) {
+      issues.push({
+        file: "public/app.js",
+        message: "Frontend has no edit workflow that submits updated task title and description.",
+        fix: "Add an edit form/action for title and description and submit both with PUT/PATCH.",
+      });
+    }
+
+    const testCases = [...testSource.matchAll(/\b(?:test|it)\s*\(\s*(["'`])([^"'`]+)\1/gi)].map((match) => match[2] ?? "");
+    const requiresTest = (scenario: string, matcher: RegExp, file: string, fix: string) => {
+      if (!testCases.some((name) => matcher.test(name))) {
+        issues.push({ file, message: `Test suite has no named ${scenario} task scenario.`, fix });
+      }
+    };
+    requiresTest("create", /create|add/i, "tests/test-tasks.js", "Add an asserted integration test that creates a task through the API.");
+    requiresTest("edit", /edit|update/i, "tests/test-tasks.js", "Add an asserted integration test that edits both task title and description.");
+    requiresTest("delete", /delete|remove/i, "tests/test-tasks.js", "Add an asserted integration test that deletes a task through the API.");
+    requiresTest("completion", /complete|toggle|status/i, "tests/test-tasks.js", "Add an asserted integration test that marks a task complete and verifies the response.");
+    requiresTest("frontend interaction", /frontend|front-end|ui|e2e|end.to.end/i, "tests/test-frontend.js", "Add an asserted frontend test for the generated task controls and API interaction.");
+    requiresTest("end-to-end workflow", /end.to.end|e2e|full workflow/i, "tests/test-tasks.js", "Add an end-to-end test that creates, edits, completes, filters, and deletes a task.");
+    if (/edit|update/i.test(testCases.join(" ")) && (!/\b(?:PUT|PATCH)\b/i.test(testSource) || !/\btitle\b/i.test(testSource) || !/\bdescription\b/i.test(testSource))) {
+      issues.push({
+        file: "tests/test-tasks.js",
+        message: "Task edit tests do not assert a PUT/PATCH update containing both title and description.",
+        fix: "Send title and description in the edit test request and assert the updated values in the response.",
+      });
+    }
+    if (/frontend|front-end|ui|e2e|end.to.end/i.test(testCases.join(" ")) &&
+        (!/public\/(?:app\.js|index\.html)/i.test(testSource) || !/\bassert\./i.test(testSource))) {
+      issues.push({
+        file: "tests/test-frontend.js",
+        message: "Frontend tests do not assert against the generated public files.",
+        fix: "Read public/index.html and public/app.js in a test and assert expected controls and interaction logic exist.",
+      });
     }
   }
 
@@ -193,4 +300,15 @@ export function staticGate(files: GeneratedFile[], requirement: string): GateIss
     seen.add(key);
     return true;
   });
+}
+
+export function staticTestDisclosure(verdict: "PASS" | "FAIL") {
+  return {
+    command: "Static file review (generated code not executed)",
+    stdout: "",
+    stderr: "The generated application and its test suite were not executed; this result is based on file inspection only.",
+    summary: verdict === "PASS"
+      ? "Static checks passed by source inspection only; no generated application or test command was run."
+      : "Static checks found issues by source inspection; no generated application or test command was run.",
+  };
 }
