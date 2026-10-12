@@ -87,6 +87,9 @@ Rules:
 - Code must be complete and executable: no TODOs, no "..." placeholders, no pseudo-code, no empty files.
 - When you update a file, "content" is the COMPLETE new file, never a fragment or a diff.
 - Reuse the module names, routes and tables defined by the architecture.
+- For task managers, persist editable title and description in the task model/schema and the task PUT/PATCH endpoint; add a visible edit workflow that submits both fields.
+- A task dashboard must show total, active and completed counts, the full task list, and working All/Active/Completed filters.
+- Add executable Node tests with explicit named cases for create, edit title + description, delete, completion, frontend interaction, and one end-to-end workflow.
 - If "Automated checks FAILED" is listed in the input, fix every listed item in this answer.
 ${JSON_RULES}
 
@@ -110,6 +113,9 @@ Mandatory, highest priority (emit these before anything else if they don't exist
 You statically inspect the generated project against its requirements and architecture.
 Look for: missing functionality, incomplete/placeholder code, empty files, broken or missing imports, undeclared dependencies,
 architecture violations, unsafe patterns and obvious quality problems. Build an import/dependency graph between files.
+For task-management apps, explicitly inspect the persisted Task model/schema, title and description writes in the update handler,
+the edit UI request payload, total/active/completed dashboard counts, All/Active/Completed filters, and separate asserted tests
+for create/edit/delete/completion/frontend interaction/end-to-end workflows.
 ${JSON_RULES}
 
 Schema:
@@ -130,13 +136,17 @@ empty files, and (unless the requirement is explicitly API-only) the absence of 
   testing: {
     title: "Testing Agent",
     system: `You are the Testing Agent of DevOrchestra.
-You design tests for the sprint's acceptance criteria, then statically execute them against the actual file contents:
+You design tests for the sprint's acceptance criteria, then statically inspect them against the actual file contents:
 trace imports, function signatures, routes and state handling to decide whether each test would pass.
+Generated application code and generated tests are NOT executed in this environment. Never claim that the app or `npm test` ran,
+never fabricate runner output, and report static assessment only. Mark a case as passing only when concrete code evidence supports it.
 Be strict and evidence-based: if a referenced symbol, file, route, field or dependency does not exist, the test FAILS.
 Always include a test that the package.json "start" entry file exists and starts the server, and (unless API-only) a test that
 public/index.html exists and public/app.js calls the APIs for every feature.
-Write REAL test files under tests/ using the built-in Node test runner (import test from "node:test", assert from "node:assert")
-and global fetch against the running server — no extra npm packages. Each test file must contain real assertions.
+Write executable test files under tests/ using the built-in Node test runner (import test from "node:test", assert from "node:assert")
+and global fetch against a test server started and stopped by test setup — no extra npm packages. Each test file must contain real assertions.
+For task apps, include separately named create, edit-title-and-description, delete, completion, frontend interaction, and end-to-end workflow tests.
+Return empty stdout and say in stderr that the generated test files were not executed in this environment.
 ${JSON_RULES}
 
 Schema:
@@ -150,7 +160,7 @@ Schema:
   "cases": [{"id":"TC-1","name":string,"target_file":string,"kind":"unit"|"integration"|"e2e","expectation":string,"status":"pass"|"fail","failure_reason":string}],
   "errors": [{"file": string, "message": string, "fix_hint": string}]
 }
-"stdout"/"stderr" must read like a real test-runner log. verdict is "PASS" only when every case passes.
+"stdout" must be empty because no test runner was invoked; "stderr" must state that code was not executed. A PASS is a static assessment only, never proof of runtime success.
 If "Automated checks FAILED" appears in the input, your verdict MUST be "FAIL".`,
   },
   correction: {
