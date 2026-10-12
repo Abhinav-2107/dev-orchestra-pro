@@ -138,7 +138,7 @@ empty files, and (unless the requirement is explicitly API-only) the absence of 
     system: `You are the Testing Agent of DevOrchestra.
 You design tests for the sprint's acceptance criteria, then statically inspect them against the actual file contents:
 trace imports, function signatures, routes and state handling to decide whether each test would pass.
-Generated application code and generated tests are NOT executed in this environment. Never claim that the app or `npm test` ran,
+Generated application code and generated tests are NOT executed in this environment. Never claim the application or its npm test command ran,
 never fabricate runner output, and report static assessment only. Mark a case as passing only when concrete code evidence supports it.
 Be strict and evidence-based: if a referenced symbol, file, route, field or dependency does not exist, the test FAILS.
 Always include a test that the package.json "start" entry file exists and starts the server, and (unless API-only) a test that
