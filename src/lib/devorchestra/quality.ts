@@ -186,6 +186,9 @@ export function staticGate(files: GeneratedFile[], requirement: string): GateIss
   // 5. Tests must contain actual assertions, not only a plausible test title.
   const testFiles = files.filter((f) => isTestFile(f.path));
   const testSource = testFiles.map((f) => f.content).join("\n");
+  if (!testFiles.length) {
+    issues.push({ file: "tests/", message: "No test files are present.", fix: "Add executable tests with assertions for the requested behavior." });
+  }
   for (const f of testFiles) {
     if (f.content.length < 200 || !/\b(test|it|describe)\s*\(/.test(f.content) || !/\bassert\./i.test(f.content)) {
       issues.push({ file: f.path, message: "Test file is a placeholder or has no assertions.", fix: "Write real test cases with assertions against the actual routes/functions." });

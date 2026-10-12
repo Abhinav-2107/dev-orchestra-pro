@@ -58,6 +58,11 @@ describe("task application quality gate", () => {
     assert.equal(issues.some((issue) => issue.message.includes("named frontend interaction task scenario")), true);
   });
 
+  test("rejects a task project with no test files", () => {
+    const files = completeTaskProject().filter((entry) => !entry.path.startsWith("tests/"));
+    assert.equal(staticGate(files, requirement).some((issue) => issue.message.includes("No test files are present")), true);
+  });
+
   test("accepts a fixture that includes editable fields, dashboard features and named test scenarios", () => {
     const issues = staticGate(completeTaskProject(), requirement);
     assert.deepEqual(issues, []);
