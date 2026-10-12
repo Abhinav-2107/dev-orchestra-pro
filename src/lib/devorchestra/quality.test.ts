@@ -15,7 +15,7 @@ function completeTaskProject(): GeneratedFile[] {
     file("taskController.js", "exports.update = async (req, res) => { const { title, description } = req.body; await db.execute('UPDATE tasks SET title = ?, description = ? WHERE id = ?', [title, description, req.params.id]); } exports.create = async () => {}; exports.delete = async () => {};"),
     file("routes/taskRoutes.js", "router.put('/:id', taskController.update);"),
     file("public/index.html", "<link href='style.css'><main><b>Total</b><b>Active</b><b>Completed</b><button data-filter='all'>All</button><button data-filter='active'>Active</button><button data-filter='completed'>Completed</button><div id='taskList'></div><script src='app.js'></script></main>"),
-    file("public/style.css", "body { color: black; }"),
+    file("public/style.css", "body { color: black; background: white; display: block; margin: 1rem; }"),
     file("public/app.js", "async function editTask(id, title, description) { return fetch('/api/tasks/' + id, { method: 'PUT', body: JSON.stringify({ title, description }) }); } function filterTasks() {}"),
     file("tests/test-tasks.js", [
       "const test = require('node:test'); const assert = require('node:assert');",
