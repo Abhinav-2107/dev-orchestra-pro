@@ -10,6 +10,9 @@ export function TestView({ state }: { state: RunState }) {
 
   return (
     <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">
+        Static review only: generated code and test files have not been executed.
+      </p>
       {[...state.tests].reverse().map((run, index) => (
         <Card key={`${run.sprint}-${run.attempt}-${index}`} className="gap-3 p-4">
           <div className="flex flex-wrap items-center gap-2">
@@ -25,7 +28,7 @@ export function TestView({ state }: { state: RunState }) {
                   : "bg-destructive/15 text-destructive",
               )}
             >
-              {run.verdict}
+              {run.verdict === "PASS" ? "STATIC PASS" : "STATIC FAIL"}
             </Badge>
             <span className="font-mono text-[10px] text-muted-foreground">{run.command}</span>
           </div>
@@ -44,7 +47,7 @@ export function TestView({ state }: { state: RunState }) {
                       testCase.status === "pass" ? "text-success" : "text-destructive",
                     )}
                   >
-                    {testCase.status === "pass" ? "✓ PASS" : "✕ FAIL"}
+                    {testCase.status === "pass" ? "✓ STATIC PASS" : "✕ STATIC FAIL"}
                   </span>
                   <span className="font-mono text-[10px] text-muted-foreground">
                     {testCase.id} · {testCase.kind}

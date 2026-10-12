@@ -1,7 +1,7 @@
 import { AGENT_PROMPTS } from "./prompts";
 import { callLLMJson } from "./llm.server";
 import { fileLanguage, type Stage } from "./pipeline";
-import { staticGate, type GateIssue } from "./quality";
+import { staticGate, staticTestDisclosure, type GateIssue } from "./quality";
 import type {
   AgentId,
   JsonValue,
@@ -456,20 +456,18 @@ export async function runStage(
           gate.length === 0 && data.verdict === "PASS" && llmCases.every((c) => c.status === "pass")
             ? "PASS"
             : "FAIL";
+        const disclosure = staticTestDisclosure(verdict);
         const run: TestRun = {
           sprint: sprintIndex,
           attempt,
           createdAt: new Date().toISOString(),
           verdict,
-          command: data.command ?? "npm test",
-          stdout: data.stdout ?? "",
-          stderr: [data.stderr ?? "", ...gate.map((g) => `AUTOMATED CHECK FAILED [${g.file}]: ${g.message}`)]
+          command: disclosure.command,
+          stdout: disclosure.stdout,
+          stderr: [disclosure.stderr, ...gate.map((g) => `AUTOMATED CHECK FAILED [${g.file}]: ${g.message}`)]
             .filter(Boolean)
             .join("\n"),
-          summary:
-            gate.length && data.verdict === "PASS"
-              ? `Model reported PASS, but ${gate.length} automated check(s) failed. ${data.summary ?? ""}`
-              : (data.summary ?? ""),
+          summary: disclosure.summary,
           cases: [...llmCases, ...gateCases],
           errors: [
             ...(data.errors ?? []),
